@@ -3,10 +3,12 @@ import ccxt.pro as ccxt  # Use the Pro (Async) version of CCXT
 import time
 from typing import Dict, Optional
 from arbitrage_market_data import ArbitrageMarketData
+from logger_config import setup_logger
 
 class BaseExchange:    
     def __init__(self, exchange_id: str):
         self.exchange_id = exchange_id
+        self.logger = setup_logger("Engine")
         # Initialize CCXT exchange class dynamically
         self.exchange = getattr(ccxt, exchange_id)({
             'enableRateLimit': True,
@@ -28,7 +30,7 @@ class BaseExchange:
         self.markets = []
 
     async def start(self, queue: asyncio.Queue):
-        print(f"[{self.exchange_id}] Connecting to WebSocket...")
+        self.logger.info(f"[{self.exchange_id}] Connecting to WebSocket...")
         try:
             await self.load_swap_markets()
             # Parallelize fetching ticker and funding rate
@@ -37,7 +39,7 @@ class BaseExchange:
             
             )
         except Exception as e:
-            print(f"[{self.exchange_id}] Error: {e}")
+            self.logger.info(f"[{self.exchange_id}] Error: {e}")
         finally:
             await self.exchange.close()
     
@@ -55,7 +57,7 @@ class BaseExchange:
             and m.get('active', True) # Only active markets
         } 
         self.symbols = list(self.markets.keys())
-        print(f"[{self.exchange_id}] Loaded {len(self.symbols)} swap markets.")
+        self.logger.info(f"[{self.exchange_id}] Loaded {len(self.symbols)} swap markets.")
 
     async def _watch_tickers(self, queue: asyncio.Queue):
         """Watches the standard Ticker stream (for Bid/Ask and Volume) via WebSocket."""
@@ -85,8 +87,8 @@ class BaseExchange:
     
     async def _handle_socket_error(self, e: Exception):
         """Force closes socket to reset state on error"""
-        print(f"[{self.exchange_id}] Socket Error: {type(e).__name__} - {e}")
-        print(f"[{self.exchange_id}] Resetting connection...")
+        self.logger.error(f"[{self.exchange_id}] Socket Error: {type(e).__name__} - {e}")
+        self.logger.error(f"[{self.exchange_id}] Resetting connection...")
         try:
             # CRITICAL: Must close to force a fresh handshake next loop
             await self.exchange.close()

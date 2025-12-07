@@ -1,60 +1,49 @@
 import asyncio
 import time
-import pandas as pd
-import numpy as np
 from typing import Dict, List, Optional
-# Assuming this is imported from your file
 from arbitrage_market_data import ArbitrageMarketData
 from scorer import FundingArbitrageScorer
 from opportunity import Opportunity
 from trade_models import TradeSignal
+from logger_config import setup_logger
 
-
-# --- The Strategy Engine ---
 class ArbitrageEngine:
-    def __init__(self):
-        # Map: Symbol -> Exchange -> MarketData
+    def __init__(self, execution_queue: asyncio.Queue = None):
+        self.logger = setup_logger("Engine")
         self.market_map: Dict[str, Dict[str, ArbitrageMarketData]] = {}
         self.scorer = FundingArbitrageScorer()
-        
-        # Global Opportunities Dictionary
-        # Key: "Symbol_LongEx_ShortEx" (e.g., "BTCUSDT_binance_bybit")
-        # Value: Dict containing the score result
         self.opportunities: Dict[str, Opportunity] = {}
+        self.execution_queue = execution_queue
+        self.cooldowns = {} 
 
     async def process_data(self, queue: asyncio.Queue):
-        print("Strategy Engine Started...")
+        self.logger.info("Strategy Engine Started...")
         while True:
             data: ArbitrageMarketData = await queue.get()
             if data.is_valid():
-                # 1. Update Internal State (In-Memory Database)
+                # 1. Update Internal State
                 if data.symbol not in self.market_map:
                     self.market_map[data.symbol] = {}
                 self.market_map[data.symbol][data.exchange] = data
             
-                # 2. Check for Arbitrage on this specific symbol
+                # 2. Check for Arbitrage
                 await self.find_opportunities(data.symbol)
                 
-                # 3. Print Dashboard (Throttle this in production)
+                # 3. Print Dashboard (Optional: Move to separate task to unblock processing)
                 self.print_dashboard()
                 
             queue.task_done()
 
     async def find_opportunities(self, symbol: str):
         current_time = time.time()
-        
-        # Extract snapshots
         exchanges_data = list(self.market_map[symbol].values())
         
         if len(exchanges_data) >= 2:
-            # Returns List[Opportunity]
             results: List[Opportunity] = self.scorer.score_opportunities(exchanges_data)
 
-            # --- Update Global State ---
             symbol_keys = [k for k in self.opportunities.keys() if k.startswith(f"{symbol}_")]
             
             if not results:
-                # Clear stale
                 for k in symbol_keys: del self.opportunities[k]
             else:
                 found_keys = set()
@@ -67,16 +56,13 @@ class ArbitrageEngine:
                     if self.execution_queue and opp.final_score >= 20.0:
                          await self._trigger_execution(opp)
                 
-                # Cleanup outdated keys for this symbol
                 for k in symbol_keys:
                     if k not in found_keys: del self.opportunities[k]
         
-        # Global Cleanup: Remove expired
         keys_to_remove = [k for k, opp in self.opportunities.items() if opp.earliest_ts <= current_time]
         for k in keys_to_remove: del self.opportunities[k]
 
     async def _trigger_execution(self, opp: Opportunity):
-        """Create a signal using Object Attributes"""
         if opp.symbol in self.cooldowns:
             if time.time() - self.cooldowns[opp.symbol] < 600: return
         
@@ -84,14 +70,14 @@ class ArbitrageEngine:
             symbol=opp.symbol,
             long_exchange=opp.long_exchange,
             short_exchange=opp.short_exchange,
-            entry_price_long=opp.ask_long,   # Using the field we added
-            entry_price_short=opp.bid_short, # Using the field we added
+            entry_price_long=opp.ask_long,
+            entry_price_short=opp.bid_short,
             target_spread=opp.entry_spread_bps,
             funding_yield_bps=opp.gross_yield_bps,
             score=opp.final_score
         )
         
-        print(f"🚀 SENDING SIGNAL: {signal.symbol} Score {signal.score}")
+        self.logger.info(f"SIGNAL: {signal.symbol} | Score {signal.score} | Yield {signal.funding_yield_bps}bps")
         await self.execution_queue.put(signal)
         self.cooldowns[opp.symbol] = time.time()
 

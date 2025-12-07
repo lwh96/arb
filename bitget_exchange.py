@@ -25,10 +25,10 @@ class BitgetExchange(BaseExchange):
                 and m.get('active', True)       
             } 
             self.symbols = list(self.markets.keys())
-            print(f"[{self.exchange_id}] Successfully loaded {len(self.symbols)} USDT perp markets.")
+            self.logger.info(f"[{self.exchange_id}] Successfully loaded {len(self.symbols)} USDT perp markets.")
             
         except Exception as e:
-            print(f"[{self.exchange_id}] Failed to load markets: {e}")
+            self.logger.error(f"[{self.exchange_id}] Failed to load markets: {e}")
             self.symbols = []
 
     async def _watch_tickers(self, queue: asyncio.Queue):
@@ -42,7 +42,7 @@ class BitgetExchange(BaseExchange):
             # STAGGER: Wait before starting to avoid 429 rate limits
             await asyncio.sleep(chunk_id * 2.0)
             
-            print(f"[{self.exchange_id}] Chunk #{chunk_id} initializing isolated connection ({len(chunk_symbols)} symbols)...")
+            self.logger.info(f"[{self.exchange_id}] Chunk #{chunk_id} initializing isolated connection ({len(chunk_symbols)} symbols)...")
             
             # CRITICAL: Create a FRESH instance for this chunk
             # This forces a distinct TCP/WebSocket connection
@@ -85,7 +85,7 @@ class BitgetExchange(BaseExchange):
                             await queue.put(data)
 
                     except Exception as e:
-                        print(f"[{self.exchange_id}] Chunk #{chunk_id} Error: {e}. Reconnecting isolated socket...")
+                        self.logger.error(f"[{self.exchange_id}] Chunk #{chunk_id} Error: {e}. Reconnecting isolated socket...")
                         # Close the isolated instance to reset state
                         try:
                             await chunk_exchange.close()
@@ -102,7 +102,7 @@ class BitgetExchange(BaseExchange):
         CHUNK_SIZE = 50
         chunks = list(self.chunk(self.symbols, CHUNK_SIZE))
         
-        print(f"[{self.exchange_id}] Spawning {len(chunks)} ISOLATED connections...")
+        self.logger.info(f"[{self.exchange_id}] Spawning {len(chunks)} ISOLATED connections...")
 
         tasks = []
         for i, c in enumerate(chunks):

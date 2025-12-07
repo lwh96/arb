@@ -38,7 +38,7 @@ class BinanceExchange(BaseExchange):
                     await queue.put(self.latest_data[symbol])
             except Exception as e:
                 # Handle errors for this specific stream
-                print(f"watch_bids_asks_stream error - {e}. Retrying in 5s...")
+                self.logger.error(f"[{self.exchange_id}] watch_bids_asks_stream error - {e}. Retrying in 5s...")
                 # Use the handler in Base to force close/reset
                 await self._handle_socket_error(e)
 
@@ -71,7 +71,7 @@ class BinanceExchange(BaseExchange):
                     await queue.put(self.latest_data[symbol])
             except Exception as e:
                 # Handle errors for this specific stream
-                print(f"watch_tickers_stream error - {e}. Retrying in 5s...")
+                self.logger.error(f"[{self.exchange_id}] watch_tickers_stream error - {e}. Retrying in 5s...")
                 # Use the handler in Base to force close/reset
                 await self._handle_socket_error(e)
 
@@ -107,7 +107,7 @@ class BinanceExchange(BaseExchange):
                     await queue.put(self.latest_data[symbol])
             except Exception as e:
                 # Handle errors for this specific stream
-                print(f"watch_mark_prices_stream error - {e}. Retrying in 5s...")
+                self.logger.error(f"[{self.exchange_id}] watch_mark_prices_stream error - {e}. Retrying in 5s...")
                 # Use the handler in Base to force close/reset
                 await self._handle_socket_error(e)
 
@@ -127,5 +127,5 @@ class BinanceExchange(BaseExchange):
                 # 4. Run all tasks concurrently
                 await asyncio.gather(*tasks)
             except Exception as e:
-                print(f"[{self.exchange_id}] Ticker Stream Error: {e}")
+                self.logger.error(f"[{self.exchange_id}] [{self.exchange_id}] Ticker Stream Error: {e}")
                 await asyncio.sleep(5) # Backoff
