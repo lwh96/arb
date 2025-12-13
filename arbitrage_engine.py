@@ -27,7 +27,7 @@ class ArbitrageEngine:
                 self.market_map[data.symbol][data.exchange] = data
             
                 # 2. Check for Arbitrage
-                await self.find_opportunities(data.symbol)
+                # await self.find_opportunities(data.symbol)
                 
                 # 3. Print Dashboard (Optional: Move to separate task to unblock processing)
                 self.print_dashboard()
@@ -88,12 +88,10 @@ class ArbitrageEngine:
             key=lambda x: x.final_score, 
             reverse=True
         )
-
-        print(f"\n--- ⚡ LIVE DELTA NEUTRAL OPPORTUNITIES (Top 20 of {len(sorted_opps)}) ---")
         if not sorted_opps:
-            print("No opportunities meeting criteria...")
             return
-
+        
+        print(f"\n--- ⚡ LIVE DELTA NEUTRAL OPPORTUNITIES (Top 20 of {len(sorted_opps)}) ---")
         print(f"{'SYM':<12} {'PAIR':<12} {'SCORE':<6} {'NET BPS':<8} {'SPREAD':<8} {'LIQ':<4} {'TIME':<6}")
         print("-" * 75)
         

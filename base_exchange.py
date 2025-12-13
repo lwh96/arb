@@ -16,11 +16,11 @@ class BaseExchange:
                 'defaultType': 'swap',
                 'defaultSubType': 'linear',
                 # Increase tolerance for missed pongs (default is usually 10000ms)
-                'keepAlive': 30000, 
+                'keepAlive': 45000, 
                 # Some exchanges allow configuring the ping interval
                 'ws': {
                     'options': {
-                        'keepAlive': 30000,
+                        'keepAlive': 45000,
                     }
                 }
             }

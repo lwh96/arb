@@ -40,7 +40,7 @@ class BitgetExchange(BaseExchange):
         # WORKER: Creates its OWN exchange instance for true isolation
         async def watch_chunk_isolated(chunk_symbols, chunk_id):
             # STAGGER: Wait before starting to avoid 429 rate limits
-            await asyncio.sleep(chunk_id * 2.0)
+            await asyncio.sleep(chunk_id * 1.5)
             
             self.logger.info(f"[{self.exchange_id}] Chunk #{chunk_id} initializing isolated connection ({len(chunk_symbols)} symbols)...")
             
@@ -99,7 +99,7 @@ class BitgetExchange(BaseExchange):
 
         # 3. Execution
         # Reduce chunk size to 40 to be safer
-        CHUNK_SIZE = 50
+        CHUNK_SIZE = 40
         chunks = list(self.chunk(self.symbols, CHUNK_SIZE))
         
         self.logger.info(f"[{self.exchange_id}] Spawning {len(chunks)} ISOLATED connections...")

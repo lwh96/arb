@@ -18,9 +18,9 @@ load_dotenv()
 TRADES_FILE = "active_trades.json"
 HISTORY_FILE = "trade_history.csv"
 LEVERAGE = 3
-PCT_EQUITY_PER_TRADE = 0.10  # Use 10% of available balance per trade
+PCT_EQUITY_PER_TRADE = 0.10  
 MAX_RETRY_ATTEMPTS = 3
-EXIT_PROFIT_THRESHOLD_BPS = 5.0 # Net profit target (after fees) to trigger exit
+EXIT_NET_PROFIT_TARGET_BPS = 5.0 
 
 class TradeManager:
     def __init__(self):
@@ -28,7 +28,6 @@ class TradeManager:
         self.clients: Dict[str, ccxt.Exchange] = {}
         self.logger = setup_logger("TradeManager")
         
-        # Load Keys securely from Environment
         self.api_config = {
             "binance": {
                 "apiKey": os.getenv("BINANCE_API_KEY"),
@@ -53,17 +52,15 @@ class TradeManager:
         self._load_state()
 
     def _validate_keys(self):
-        """Ensure keys exist before starting"""
         for exchange, config in self.api_config.items():
             if not config["apiKey"] or not config["secret"]:
-                self.logger.critical(f"MISSING API KEYS for {exchange}. Check your .env file.")
+                self.logger.critical(f"MISSING API KEYS for {exchange}.")
                 raise ValueError(f"Missing keys for {exchange}")
             if exchange == 'bitget' and not config.get('password'):
-                self.logger.critical("MISSING BITGET PASSPHRASE. Check your .env file.")
+                self.logger.critical("MISSING BITGET PASSPHRASE.")
                 raise ValueError("Missing Bitget passphrase")
 
     def _init_exchanges(self):
-        """Initialize authenticated clients"""
         for exchange_id, config in self.api_config.items():
             try:
                 exchange_class = getattr(ccxt, exchange_id)
@@ -75,80 +72,60 @@ class TradeManager:
     async def run(self, signal_queue: asyncio.Queue, market_data_queue: asyncio.Queue):
         self.logger.info("Trade Manager Started... Waiting for signals.")
         while True:
-            # 1. Process New Signals
             if not signal_queue.empty():
                 signal: TradeSignal = await signal_queue.get()
                 await self.process_signal(signal)
                 signal_queue.task_done()
 
-            # 2. Monitor Active Trades (Exit Logic)
             if self.active_trades:
                 await self.monitor_exits()
 
             await asyncio.sleep(1)
 
     async def process_signal(self, signal: TradeSignal):
-        """Pre-checks before execution"""
-        # Q1: Check for Duplicates (Symbol level check)
         for trade in self.active_trades.values():
             if trade.symbol == signal.symbol and trade.status == "OPEN":
-                self.logger.warning(f"IGNORED: Active trade exists for {signal.symbol}")
-                return
-
+                return # Ignore duplicate
         await self.execute_entry_strategy(signal)
 
     async def execute_entry_strategy(self, signal: TradeSignal):
         trade_id = str(uuid.uuid4())[:8]
-        self.logger.info(f"[{trade_id}] EXECUTING: Long {signal.long_exchange} / Short {signal.short_exchange} for {signal.symbol}")
+        self.logger.info(f"[{trade_id}] EXECUTING: {signal.symbol} (Long {signal.long_exchange} / Short {signal.short_exchange})")
 
         long_client = self.clients.get(signal.long_exchange)
         short_client = self.clients.get(signal.short_exchange)
 
         if not long_client or not short_client:
-            self.logger.error(f"[{trade_id}] Exchanges not initialized properly.")
+            self.logger.error(f"[{trade_id}] Clients not ready.")
             return
 
-        # Dynamic Sizing
         size_amount = 0.0
         try:
-            # Fetch free collateral from both
             bal_long = await long_client.fetch_balance()
             bal_short = await short_client.fetch_balance()
             
-            # USDT Free Balance
             free_long = float(bal_long['USDT']['free'])
             free_short = float(bal_short['USDT']['free'])
             
-            # Use the smaller account to determine size (Bottleneck)
             max_deployable = min(free_long, free_short) * PCT_EQUITY_PER_TRADE * LEVERAGE
-            
-            # Convert USDT size to Amount of Coin
             raw_size = max_deployable / signal.entry_price_long
-            
-            # Rounding to precision (Crucial for live trading)
             size_amount = float(long_client.amount_to_precision(signal.symbol, raw_size))
             
-            self.logger.info(f"[{trade_id}] Calculated Size: {size_amount} {signal.symbol} (Based on ${min(free_long, free_short):.2f} equity)")
+            self.logger.info(f"[{trade_id}] Size: {size_amount} {signal.symbol} (${max_deployable:.2f})")
 
         except Exception as e:
             self.logger.error(f"[{trade_id}] Sizing Error: {e}")
             return
 
-        # Q5: Post-Only Parameters
         params_maker = {'postOnly': True} 
 
-        self.logger.info(f"[{trade_id}] Placing MAKER orders...")
-        
         try:
-            # Task 1: Buy Long
             t1 = long_client.create_limit_buy_order(signal.symbol, size_amount, signal.entry_price_long, params_maker)
-            # Task 2: Sell Short
             t2 = short_client.create_limit_sell_order(signal.symbol, size_amount, signal.entry_price_short, params_maker)
             
             results = await asyncio.gather(t1, t2, return_exceptions=True)
             res_long, res_short = results
 
-            # Q7: HANDLE LEGGED TRADES
             long_filled = not isinstance(res_long, Exception)
             short_filled = not isinstance(res_short, Exception)
 
@@ -160,7 +137,6 @@ class TradeManager:
                 self.logger.critical(f"[{trade_id}] LEG RISK: Long Filled, Short Failed! Error: {res_short}")
                 self.logger.critical(f"[{trade_id}] FORCING TAKER SHORT HEDGE...")
                 await self._force_hedge(short_client, signal.symbol, 'sell', size_amount)
-                # Register trade assuming hedge worked (add error handling in real prod)
                 self._register_trade(trade_id, signal, size_amount, res_long, {'price': signal.entry_price_short, 'id': 'hedge-forced'})
 
             elif short_filled and not long_filled:
@@ -170,24 +146,20 @@ class TradeManager:
                 self._register_trade(trade_id, signal, size_amount, {'price': signal.entry_price_long, 'id': 'hedge-forced'}, res_short)
 
             else:
-                self.logger.warning(f"[{trade_id}] Both orders failed (likely Post-Only). Trade aborted.")
+                self.logger.warning(f"[{trade_id}] Orders failed (Post-Only). Aborting.")
 
         except Exception as e:
-            self.logger.critical(f"[{trade_id}] SYSTEM ERROR during execution: {e}", exc_info=True)
+            self.logger.critical(f"[{trade_id}] EXECUTION ERROR: {e}", exc_info=True)
 
     async def _force_hedge(self, client, symbol, side, amount):
-        """Aggressive Taker order to fix a legged position"""
         try:
-            if side == 'buy':
-                await client.create_market_buy_order(symbol, amount)
-            else:
-                await client.create_market_sell_order(symbol, amount)
+            if side == 'buy': await client.create_market_buy_order(symbol, amount)
+            else: await client.create_market_sell_order(symbol, amount)
             self.logger.info(f"HEDGE SUCCESSFUL for {symbol}")
         except Exception as e:
-            self.logger.critical(f"HEDGE FAILED: {e}. MANUAL INTERVENTION REQUIRED IMMEDIATELY.")
+            self.logger.critical(f"HEDGE FAILED: {e}. MANUAL INTERVENTION REQUIRED.")
 
     def _register_trade(self, trade_id, signal, size, res_long, res_short):
-        # Handle cases where response might be different depending on exchange
         p_long = float(res_long.get('average') or res_long.get('price') or signal.entry_price_long)
         p_short = float(res_short.get('average') or res_short.get('price') or signal.entry_price_short)
 
@@ -206,84 +178,57 @@ class TradeManager:
         self.active_trades[trade_id] = trade
         self._save_state()
         self._log_to_csv(trade, "ENTRY")
-        self.logger.info(f"[{trade_id}] Trade Registered & Saved.")
 
     async def monitor_exits(self):
-        # Exit Logic
+        """
+        Monitors PnL including estimated Taker Fees on exit.
+        """
         for t_id, trade in list(self.active_trades.items()):
             if trade.status != "OPEN": continue
 
             try:
-                # 1. Check if Funding Event passed (Simple time check)
-                # In real prod, store 'funding_time' in ActiveTrade and compare
-                # if time.time() > trade.funding_time + 600: ... 
-
                 long_client = self.clients[trade.long_exchange]
                 short_client = self.clients[trade.short_exchange]
                 
-                # Fetch current Ticker (Bid/Ask) for Exit Calculation
-                # We Sell the Long (Bid) and Buy the Short (Ask)
+                # Fetch Exit Prices (Taker)
                 tick_long = await long_client.fetch_ticker(trade.symbol)
                 tick_short = await short_client.fetch_ticker(trade.symbol)
                 
                 exit_bid_long = tick_long['bid']
                 exit_ask_short = tick_short['ask']
                 
-                # Current Exit Spread = (Short_Ask - Long_Bid) / Long_Bid
-                # If we entered at -20bps, we want this to be > -20bps (e.g. -5bps or 0bps)
-                current_spread_bps = ((exit_ask_short - exit_bid_long) / exit_bid_long) * 10000
-                
-                # Convergence Gain = Entry Spread - Current Spread
-                # Example: Entry -20, Current -5. Gain = -20 - (-5) = -15 (Wrong direction logic?)
-                
-                # LOGIC CORRECTION:
-                # We want PnL. 
-                # Long PnL = Exit_Bid - Entry_Ask
-                # Short PnL = Entry_Bid - Exit_Ask
-                
-                # Simplified Convergence Check:
-                # We want the spread to be SMALLER (closer to 0) than entry spread (if entry was positive)
-                # Or HIGHER (closer to 0) if entry was negative cost.
-                
-                # Let's just use the PnL logic directly
-                # Est PnL from Price only
+                # 1. Calculate Gross Price PnL (BPS)
                 pnl_long_pct = (exit_bid_long - trade.entry_price_long) / trade.entry_price_long
                 pnl_short_pct = (trade.entry_price_short - exit_ask_short) / trade.entry_price_short
+                gross_pnl_bps = (pnl_long_pct + pnl_short_pct) * 10000
                 
-                total_pnl_bps = (pnl_long_pct + pnl_short_pct) * 10000
+                exit_fee_bps = 11.0 
+                net_pnl_bps = gross_pnl_bps - exit_fee_bps
                 
-                # If Price PnL + Funding (Estimated) > Target
-                # For now, let's just use a simple convergence target
-                # If we captured > 10bps of spread convergence
-                
-                # Entry Basis (Normalized): (Short - Long) / Long
-                basis_diff = trade.entry_spread - current_spread_bps
-                
-                # If we have gained 5bps from spread narrowing OR 30 minutes have passed
                 time_held = time.time() - trade.entry_time
                 
-                if basis_diff > 5.0 or time_held > 3600: 
-                    self.logger.info(f"[{t_id}] 🎯 TARGET HIT (Spread Gain: {basis_diff:.1f}bps or Time Limit). Closing...")
+                self.logger.debug(f"[{t_id}] Net PnL: {net_pnl_bps:.1f} bps (Gross: {gross_pnl_bps:.1f})")
+
+                if net_pnl_bps > EXIT_NET_PROFIT_TARGET_BPS:
+                    self.logger.info(f"[{t_id}] 🎯 TARGET HIT (Net PnL: {net_pnl_bps:.1f} bps). Closing...")
+                    await self.close_trade(trade)
+                
+                elif time_held > 3000: # 1 Hour Limit
+                    self.logger.info(f"[{t_id}] ⌛ TIME LIMIT. Closing...")
                     await self.close_trade(trade)
 
             except Exception as e:
                 self.logger.error(f"Monitor error {t_id}: {e}")
 
     async def close_trade(self, trade: ActiveTrade):
-        """Execute Exit Orders (Taker for speed/certainty)"""
-        self.logger.info(f"[{trade.trade_id}] Closing Position...")
-        
+        self.logger.info(f"[{trade.trade_id}] Closing Position (Taker)...")
         long_client = self.clients[trade.long_exchange]
         short_client = self.clients[trade.short_exchange]
-        
         params = {'reduceOnly': True}
         
         try:
-            # Sell the Long (Market)
             t1 = long_client.create_market_sell_order(trade.symbol, trade.size_amount, params)
-            # Buy the Short (Market)
             t2 = short_client.create_market_buy_order(trade.symbol, trade.size_amount, params)
-            
             await asyncio.gather(t1, t2)
             
             trade.status = "CLOSED"
@@ -293,7 +238,7 @@ class TradeManager:
             self.logger.info(f"[{trade.trade_id}] CLOSED Successfully.")
             
         except Exception as e:
-            self.logger.error(f"[{trade.trade_id}] CLOSE FAILED: {e}")
+            self.logger.critical(f"[{trade.trade_id}] CLOSE FAILED: {e}")
 
     def _save_state(self):
         with open(TRADES_FILE, 'w') as f:
@@ -306,9 +251,7 @@ class TradeManager:
                     data = json.load(f)
                     for k, v in data.items():
                         self.active_trades[k] = ActiveTrade.from_dict(v)
-                self.logger.info(f"Loaded {len(self.active_trades)} active trades from disk.")
-            except Exception as e:
-                self.logger.error(f"Error loading state: {e}")
+            except Exception: pass
 
     def _log_to_csv(self, trade: ActiveTrade, action: str):
         file_exists = os.path.isfile(HISTORY_FILE)
@@ -316,14 +259,4 @@ class TradeManager:
             writer = csv.writer(f)
             if not file_exists:
                 writer.writerow(['Time', 'ID', 'Action', 'Symbol', 'LongEx', 'ShortEx', 'Size', 'PnL'])
-            
-            writer.writerow([
-                time.strftime("%Y-%m-%d %H:%M:%S"),
-                trade.trade_id,
-                action,
-                trade.symbol,
-                trade.long_exchange,
-                trade.short_exchange,
-                trade.size_amount,
-                trade.pnl_realized
-            ])
+            writer.writerow([time.strftime("%Y-%m-%d %H:%M:%S"), trade.trade_id, action, trade.symbol, trade.long_exchange, trade.short_exchange, trade.size_amount, trade.pnl_realized])
