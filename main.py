@@ -46,6 +46,7 @@ async def main():
             bybit_exc.start(data_queue),
             bitget_exc.start(data_queue),
             engine.process_data(data_queue),
+            engine.dashboard_loop(),  
             # trader.run(exec_queue, data_queue) # <--- DISABLED
         )
     except Exception as e:

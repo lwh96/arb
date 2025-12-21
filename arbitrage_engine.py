@@ -7,6 +7,8 @@ from opportunity import Opportunity
 from trade_models import TradeSignal
 from logger_config import setup_logger
 
+DASHBOARD_INTERVAL = 60  # Seconds between dashboard refreshes
+
 class ArbitrageEngine:
     def __init__(self, execution_queue: asyncio.Queue = None):
         self.logger = setup_logger("Engine")
@@ -25,9 +27,19 @@ class ArbitrageEngine:
                     self.market_map[data.symbol] = {}
                 self.market_map[data.symbol][data.exchange] = data
             
+                # Await, but offload CPU work inside find_opportunities
                 await self.find_opportunities(data.symbol)
                 
             queue.task_done()
+
+    async def dashboard_loop(self):
+        """
+        Runs in the background and prints the dashboard every X seconds.
+        """
+        self.logger.info("Dashboard Loop Started...")
+        while True:
+            await asyncio.sleep(DASHBOARD_INTERVAL)
+            self.print_dashboard()
 
     async def find_opportunities(self, symbol: str):
         current_time = time.time()
@@ -35,6 +47,7 @@ class ArbitrageEngine:
         
         if len(exchanges_data) >= 2:
             try:
+                # Offload to thread to prevent blocking event loop
                 results: List[Opportunity] = await asyncio.to_thread(
                     self.scorer.score_opportunities, 
                     exchanges_data
