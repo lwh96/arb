@@ -6,7 +6,7 @@ from binance_exchange import BinanceExchange
 from bybit_exchange import BybitExchange
 from bitget_exchange import BitgetExchange
 from arbitrage_engine import ArbitrageEngine
-from trade_manager import TradeManager
+# from trade_manager import TradeManager  # <--- DISABLED FOR SCANNER TESTING
 from logger_config import setup_logger
 
 # Initialize Logger
@@ -21,11 +21,11 @@ except ImportError:
     pass
 
 async def main():
-    logger.info("🤖 Starting Arbitrage Bot System...")
+    logger.info("Starting Arbitrage Bot System (SCANNER ONLY MODE)...")
 
     # 1. Queues
     data_queue = asyncio.Queue()
-    exec_queue = asyncio.Queue()
+    # exec_queue = asyncio.Queue() # <--- DISABLED
 
     # 2. Initialize Components
     try:
@@ -33,8 +33,10 @@ async def main():
         bybit_exc = BybitExchange()
         bitget_exc = BitgetExchange()
         
-        engine = ArbitrageEngine(execution_queue=exec_queue)
-        trader = TradeManager()
+        # Engine gets None for execution_queue to disable signal sending
+        engine = ArbitrageEngine(execution_queue=None) 
+        
+        # trader = TradeManager() # <--- DISABLED
         
         logger.info("All components initialized. Starting concurrent loops...")
 
@@ -44,7 +46,7 @@ async def main():
             bybit_exc.start(data_queue),
             bitget_exc.start(data_queue),
             engine.process_data(data_queue),
-            trader.run(exec_queue, data_queue)
+            # trader.run(exec_queue, data_queue) # <--- DISABLED
         )
     except Exception as e:
         logger.critical("Fatal Crash in Main Loop!", exc_info=True)

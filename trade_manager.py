@@ -11,16 +11,14 @@ import uuid
 from dotenv import load_dotenv
 from logger_config import setup_logger
 
-# Load environment variables
 load_dotenv()
 
-# Configuration
 TRADES_FILE = "active_trades.json"
 HISTORY_FILE = "trade_history.csv"
 LEVERAGE = 3
 PCT_EQUITY_PER_TRADE = 0.10  
 MAX_RETRY_ATTEMPTS = 3
-EXIT_NET_PROFIT_TARGET_BPS = 5.0 
+EXIT_NET_PROFIT_TARGET_BPS = 2.0 
 
 class TradeManager:
     def __init__(self):
@@ -54,11 +52,9 @@ class TradeManager:
     def _validate_keys(self):
         for exchange, config in self.api_config.items():
             if not config["apiKey"] or not config["secret"]:
-                self.logger.critical(f"MISSING API KEYS for {exchange}.")
-                raise ValueError(f"Missing keys for {exchange}")
+                self.logger.warning(f"MISSING API KEYS for {exchange}. Execution will fail.")
             if exchange == 'bitget' and not config.get('password'):
-                self.logger.critical("MISSING BITGET PASSPHRASE.")
-                raise ValueError("Missing Bitget passphrase")
+                 self.logger.warning("MISSING BITGET PASSPHRASE.")
 
     def _init_exchanges(self):
         for exchange_id, config in self.api_config.items():
@@ -85,7 +81,7 @@ class TradeManager:
     async def process_signal(self, signal: TradeSignal):
         for trade in self.active_trades.values():
             if trade.symbol == signal.symbol and trade.status == "OPEN":
-                return # Ignore duplicate
+                return 
         await self.execute_entry_strategy(signal)
 
     async def execute_entry_strategy(self, signal: TradeSignal):
@@ -190,14 +186,12 @@ class TradeManager:
                 long_client = self.clients[trade.long_exchange]
                 short_client = self.clients[trade.short_exchange]
                 
-                # Fetch Exit Prices (Taker)
                 tick_long = await long_client.fetch_ticker(trade.symbol)
                 tick_short = await short_client.fetch_ticker(trade.symbol)
                 
                 exit_bid_long = tick_long['bid']
                 exit_ask_short = tick_short['ask']
                 
-                # 1. Calculate Gross Price PnL (BPS)
                 pnl_long_pct = (exit_bid_long - trade.entry_price_long) / trade.entry_price_long
                 pnl_short_pct = (trade.entry_price_short - exit_ask_short) / trade.entry_price_short
                 gross_pnl_bps = (pnl_long_pct + pnl_short_pct) * 10000
@@ -210,11 +204,11 @@ class TradeManager:
                 self.logger.debug(f"[{t_id}] Net PnL: {net_pnl_bps:.1f} bps (Gross: {gross_pnl_bps:.1f})")
 
                 if net_pnl_bps > EXIT_NET_PROFIT_TARGET_BPS:
-                    self.logger.info(f"[{t_id}] 🎯 TARGET HIT (Net PnL: {net_pnl_bps:.1f} bps). Closing...")
+                    self.logger.info(f"[{t_id}] TARGET HIT (Net PnL: {net_pnl_bps:.1f} bps). Closing...")
                     await self.close_trade(trade)
                 
-                elif time_held > 3000: # 1 Hour Limit
-                    self.logger.info(f"[{t_id}] ⌛ TIME LIMIT. Closing...")
+                elif time_held > 3000: 
+                    self.logger.info(f"[{t_id}] TIME LIMIT. Closing...")
                     await self.close_trade(trade)
 
             except Exception as e:

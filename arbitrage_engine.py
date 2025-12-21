@@ -21,16 +21,11 @@ class ArbitrageEngine:
         while True:
             data: ArbitrageMarketData = await queue.get()
             if data.is_valid():
-                # 1. Update Internal State
                 if data.symbol not in self.market_map:
                     self.market_map[data.symbol] = {}
                 self.market_map[data.symbol][data.exchange] = data
             
-                # 2. Check for Arbitrage
                 await self.find_opportunities(data.symbol)
-                
-                # 3. Print Dashboard (Optional: Move to separate task to unblock processing)
-                self.print_dashboard()
                 
             queue.task_done()
 
@@ -39,7 +34,14 @@ class ArbitrageEngine:
         exchanges_data = list(self.market_map[symbol].values())
         
         if len(exchanges_data) >= 2:
-            results: List[Opportunity] = self.scorer.score_opportunities(exchanges_data)
+            try:
+                results: List[Opportunity] = await asyncio.to_thread(
+                    self.scorer.score_opportunities, 
+                    exchanges_data
+                )
+            except Exception as e:
+                self.logger.error(f"Scoring Error: {e}")
+                return
 
             symbol_keys = [k for k in self.opportunities.keys() if k.startswith(f"{symbol}_")]
             
@@ -52,8 +54,7 @@ class ArbitrageEngine:
                     self.opportunities[key] = opp
                     found_keys.add(key)
                     
-                    # CHECK FOR EXECUTION
-                    if self.execution_queue and opp.final_score >= 20.0:
+                    if self.execution_queue and opp.final_score >= 10.0:
                          await self._trigger_execution(opp)
                 
                 for k in symbol_keys:
