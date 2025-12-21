@@ -1,23 +1,22 @@
-version: '3.8'
+version: "3.8"
 
 services:
-  arb-bot:
-    build: .
-    container_name: crypto-arb-bot
-    restart: always
-    # Mount data files so they persist on the host machine even if container is deleted
-    volumes:
-      - ./bot_execution.log:/app/bot_execution.log
-      - ./active_trades.json:/app/active_trades.json
-      - ./trade_history.csv:/app/trade_history.csv
-    # Pass environment variables from the host's .env file
-    env_file:
-      - .env
-    # Limit resources to prevent crashing the whole server if there's a memory leak
-    deploy:
-      resources:
-        limits:
-          memory: 1024M
-    # Use host network mode for slightly lower latency (Linux only)
-    # network_mode: "host" 
-```
+    arb-bot:
+        build: .
+        container_name: crypto-arb-bot
+        restart: always
+        # Mount data files so they persist on the host machine even if container is deleted
+        volumes:
+            - ./bot_execution.log:/app/bot_execution.log
+            - ./active_trades.json:/app/active_trades.json
+            - ./trade_history.csv:/app/trade_history.csv
+        # Pass environment variables from the host's .env file
+        env_file:
+            - .env
+        # Limit resources to prevent crashing the whole server if there's a memory leak
+        deploy:
+            resources:
+                limits:
+                    memory: 1024M
+        # Use host network mode for slightly lower latency (Linux only)
+        # network_mode: "host"
