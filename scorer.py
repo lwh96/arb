@@ -9,7 +9,6 @@ from opportunity import Opportunity
 from arbitrage_market_data import ArbitrageMarketData
 
 # --- Configuration ---
-# Taker fees (Standard 0.05% - 0.06%)
 EXCHANGE_TAKER_FEES = {
     "binance": 0.00046,
     "bybit": 0.00055,
@@ -17,14 +16,12 @@ EXCHANGE_TAKER_FEES = {
     "default": 0.00060 
 }
 
-# Maker fees (Standard 0.02%)
 EXCHANGE_MAKER_FEES = {
-    "binance": 0.00020,
+    "binance": 0.00018,
     "bybit": 0.00020,
     "bitget": 0.00020,
     "default": 0.00020
 }
-
 # Thresholds
 MIN_SCORE_THRESHOLD = 5.0       # Lowered from 10.0 because Net Profit calculation is now stricter (includes Taker fees)
 MIN_VOLUME_USD = 500_000        
@@ -46,7 +43,7 @@ class FundingArbitrageScorer:
         # 2. Hard Filters
         current_time = time.time()
         df = df[
-            (df['timestamp'] > current_time - 60) & 
+            (df['timestamp'] > ((current_time - 600) * 1000)) & 
             (df['next_funding_ts'] > current_time) &
             (df['quote_volume'] > MIN_VOLUME_USD)
         ].copy()

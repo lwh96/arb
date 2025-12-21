@@ -27,7 +27,7 @@ class ArbitrageEngine:
                 self.market_map[data.symbol][data.exchange] = data
             
                 # 2. Check for Arbitrage
-                # await self.find_opportunities(data.symbol)
+                await self.find_opportunities(data.symbol)
                 
                 # 3. Print Dashboard (Optional: Move to separate task to unblock processing)
                 self.print_dashboard()
