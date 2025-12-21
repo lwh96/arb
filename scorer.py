@@ -30,11 +30,10 @@ MIN_PROFIT_BPS = 2.0
 class FundingArbitrageScorer:
     def score_opportunities(self, market_data: List[ArbitrageMarketData]) -> List[Opportunity]:
         if not market_data: return []
-
         df = pd.DataFrame([asdict(d) for d in market_data])
         current_time = time.time()
         df = df[
-            (df['timestamp'] > ((current_time - 600) * 1000)) & 
+            (df['next_funding_ts'] > ((current_time - 600) * 1000)) & 
             (df['next_funding_ts'] > current_time) &
             (df['quote_volume'] > MIN_VOLUME_USD)
         ].copy()
