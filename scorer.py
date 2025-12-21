@@ -36,7 +36,7 @@ class FundingArbitrageScorer:
         current_time_ms = current_time * 1000  # keep as float, then use floor if needed
         df = df[
             (df['next_funding_ts'] >= current_time_ms) &
-            # (df['next_funding_ts'] < current_time_ms + 600_000) &
+            (df['next_funding_ts'] < current_time_ms + 600_000) &
             (df['quote_volume'] > MIN_VOLUME_USD)
         ].copy()
         if df.empty: return []
@@ -106,7 +106,7 @@ class FundingArbitrageScorer:
                 net_profit_bps=round(float(row['est_net_profit_bps']), 2),
                 liquidity_score=round(float(row['liquidity_score']), 2),
                 mark_divergence_bps=round(float(row['mark_divergence_bps']), 2),
-                time_to_funding_min=round((float(row['earliest_ts']) - current_time) / 60, 1), 
+                time_to_funding_min=round((float(row['earliest_ts']) - current_time_ms) / 60_000, 1), 
                 earliest_ts=int(row['earliest_ts']),
                 final_score=round(float(row['final_score']), 1),
                 ask_long=float(row['ask_L']),

@@ -113,13 +113,5 @@ class ArbitrageEngine:
             pair_str = f"{opp.long_exchange[0:3].upper()}/{opp.short_exchange[0:3].upper()}"
             spread_str = f"{opp.entry_spread_bps:+.1f}"
             
-            print(
-                f"{opp.symbol:<12} "
-                f"{pair_str:<12} "
-                f"{opp.final_score:<6.1f} "
-                f"{opp.net_profit_bps:<8.1f} "
-                f"{spread_str:<8} "
-                f"{opp.liquidity_score:<4.2f} "
-                f"{opp.time_to_funding_min:<6.1f}m"
-            )
-        print("-" * 75)
+            print(opp)
+            print("-" * 75)
