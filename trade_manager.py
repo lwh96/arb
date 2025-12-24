@@ -27,7 +27,7 @@ class TradeManager:
         self.logger = setup_logger("TradeManager")
         
         self.api_config = {
-            "binance": {
+            "binanceusdm": {
                 "apiKey": os.getenv("BINANCE_API_KEY"),
                 "secret": os.getenv("BINANCE_SECRET"),
                 "options": {"defaultType": "swap"}
@@ -37,12 +37,12 @@ class TradeManager:
                 "secret": os.getenv("BYBIT_SECRET"),
                 "options": {"defaultType": "swap"}
             },
-            "bitget": {
-                "apiKey": os.getenv("BITGET_API_KEY"),
-                "secret": os.getenv("BITGET_SECRET"),
-                "password": os.getenv("BITGET_PASSPHRASE"),
-                "options": {"defaultType": "swap"}
-            }
+            # "bitget": {
+            #     "apiKey": os.getenv("BITGET_API_KEY"),
+            #     "secret": os.getenv("BITGET_SECRET"),
+            #     "password": os.getenv("BITGET_PASSPHRASE"),
+            #     "options": {"defaultType": "swap"}
+            # }
         }
         
         self._validate_keys()
