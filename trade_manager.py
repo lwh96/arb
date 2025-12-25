@@ -189,8 +189,8 @@ class TradeManager:
                 tick_long = await long_client.fetch_bids_asks([trade.symbol])
                 tick_short = await short_client.fetch_bids_asks([trade.symbol])
                 
-                exit_bid_long = tick_long[0]['bid']
-                exit_ask_short = tick_short[0]['ask']
+                exit_bid_long = tick_long[trade.symbol]['bid']
+                exit_ask_short = tick_short[trade.symbol]['ask']
                 
                 pnl_long_pct = (exit_bid_long - trade.entry_price_long) / trade.entry_price_long
                 pnl_short_pct = (trade.entry_price_short - exit_ask_short) / trade.entry_price_short
