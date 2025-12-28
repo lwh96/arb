@@ -52,6 +52,7 @@ async def main():
     except Exception as e:
         logger.critical("Fatal Crash in Main Loop!", exc_info=True)
 
+
 if __name__ == "__main__":
     try:
         asyncio.run(main())

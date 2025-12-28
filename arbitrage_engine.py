@@ -39,7 +39,7 @@ class ArbitrageEngine:
         self.logger.info("Dashboard Loop Started...")
         while True:
             await asyncio.sleep(DASHBOARD_INTERVAL)
-            self.print_dashboard()
+            # self.print_dashboard()
 
     async def find_opportunities(self, symbol: str):
         current_time = time.time()
@@ -77,6 +77,10 @@ class ArbitrageEngine:
         for k in keys_to_remove: del self.opportunities[k]
 
     async def _trigger_execution(self, opp: Opportunity):
+        # Strict Positive Yield Check
+        if opp.gross_yield_bps <= 0:
+            return
+
         if opp.symbol in self.cooldowns:
             if time.time() - self.cooldowns[opp.symbol] < 600: return
         
@@ -105,7 +109,7 @@ class ArbitrageEngine:
         if not sorted_opps:
             return
         
-        print(f"\n--- ⚡ LIVE DELTA NEUTRAL OPPORTUNITIES (Top 20 of {len(sorted_opps)}) ---")
+        print(f"\n--- LIVE DELTA NEUTRAL OPPORTUNITIES (Top 20 of {len(sorted_opps)}) ---")
         print(f"{'SYM':<12} {'PAIR':<12} {'SCORE':<6} {'NET BPS':<8} {'SPREAD':<8} {'LIQ':<4} {'TIME':<6}")
         print("-" * 75)
         

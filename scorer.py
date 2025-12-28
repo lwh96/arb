@@ -23,9 +23,9 @@ EXCHANGE_MAKER_FEES = {
 }
 
 MIN_SCORE_THRESHOLD = 5.0       
-MIN_VOLUME_USD = 1_000_000      # Increased from 500k to 1M to filter low-liq noise
-MIN_PROFIT_BPS = 2.0            
-MAX_VALID_SPREAD_BPS = 200.0    # Cap at 2% spread. Anything higher is likely a wallet issue/trap.
+MIN_VOLUME_USD = 1_000_000      
+MIN_PROFIT_BPS = 3.0            
+MAX_VALID_SPREAD_BPS = 200.0    
 
 class FundingArbitrageScorer:
     def score_opportunities(self, market_data: List[ArbitrageMarketData]) -> List[Opportunity]:
@@ -39,6 +39,7 @@ class FundingArbitrageScorer:
             (df['next_funding_ts'] < current_time_ms + 600_000) &
             (df['quote_volume'] > MIN_VOLUME_USD)
         ].copy()
+
         if df.empty: return []
 
         pairs = pd.merge(df, df, on='symbol', suffixes=('_L', '_S'))
@@ -53,6 +54,10 @@ class FundingArbitrageScorer:
 
         pairs['gross_yield_bps'] = (pairs['eff_FR_S'] - pairs['eff_FR_L']) * 10_000
         
+        # Ensure positive yield
+        pairs = pairs[pairs['gross_yield_bps'] > 0].copy()
+        if pairs.empty: return []
+
         # Fees
         def get_maker(ex_series):
             return ex_series.map(EXCHANGE_MAKER_FEES).fillna(EXCHANGE_MAKER_FEES['default'])
@@ -66,15 +71,12 @@ class FundingArbitrageScorer:
         # Spread
         pairs['entry_spread_bps'] = ((pairs['bid_S'] - pairs['ask_L']) / pairs['ask_L']) * 10_000
         
-        # SANITY CHECK: Filter out spreads that are "Too Good To Be True" (>2%)
-        # Also filter out extremely negative spreads (< -30bps) unless yield is massive
         pairs = pairs[pairs['entry_spread_bps'] < MAX_VALID_SPREAD_BPS].copy()
 
         # Mark Divergence
         avg_mark = (pairs['mark_price_L'] + pairs['mark_price_S']) / 2
         pairs['mark_divergence_bps'] = ((pairs['mark_price_L'] - pairs['mark_price_S']).abs() / avg_mark) * 10_000
 
-        # Net Profit
         pairs['est_net_profit_bps'] = pairs['gross_yield_bps'] + pairs['entry_spread_bps'] - pairs['fees_bps']
         
         pairs = pairs[pairs['est_net_profit_bps'] > MIN_PROFIT_BPS].copy()

@@ -10,7 +10,7 @@ class TradeSignal:
     short_exchange: str
     entry_price_long: float
     entry_price_short: float
-    target_spread: float  # The spread difference we want to capture
+    target_spread: float 
     funding_yield_bps: float
     score: float
     timestamp: float = field(default_factory=time.time)
@@ -21,15 +21,32 @@ class ActiveTrade:
     symbol: str
     long_exchange: str
     short_exchange: str
-    entry_price_long: float
-    entry_price_short: float
-    size_amount: float     # Amount of coin (e.g. 0.1 BTC)
-    entry_spread: float
-    status: str            # 'OPEN', 'CLOSING', 'CLOSED'
-    entry_time: float
-    pnl_realized: float = 0.0
     
-    # For persistence
+    # Target values from Signal
+    target_entry_long: float
+    target_entry_short: float
+    
+    # Execution values (Actual)
+    exec_entry_long: float = 0.0
+    exec_entry_short: float = 0.0
+    
+    size_amount: float = 0.0
+    entry_spread: float = 0.0
+    
+    status: str = "PENDING"  # PENDING, OPEN, CLOSING, CLOSED
+    entry_time: float = 0.0
+    
+    # PnL Tracking
+    exit_price_long: float = 0.0
+    exit_price_short: float = 0.0
+    entry_fees: float = 0.0
+    exit_fees: float = 0.0
+    pnl_realized: float = 0.0
+    net_pnl: float = 0.0
+
+    expected_yield: float = 0.0
+    actual_yield: float = 0.0
+    
     def to_dict(self):
         return self.__dict__
     
