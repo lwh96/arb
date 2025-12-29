@@ -16,9 +16,9 @@ load_dotenv()
 
 TRADES_FILE = "active_trades.json"
 HISTORY_FILE = "trade_history.csv"
-LEVERAGE = 3
+LEVERAGE = 15
 PCT_EQUITY_PER_TRADE = 0.10  
-EXIT_NET_PROFIT_TARGET_BPS = 4.0 
+EXIT_NET_PROFIT_TARGET_BPS = 3.0 
 ORDER_TIMEOUT_SEC = 20 
 EXCHANGE_TAKER_FEES = {
     "binanceusdm": 0.00046,
@@ -468,7 +468,7 @@ class TradeManager:
             trade.exit_fees = (EXCHANGE_TAKER_FEES[long_client.id] + EXCHANGE_TAKER_FEES[short_client.id]) * 10000
             trade.actual_yield= net_yield
             trade.pnl_realized = pnl_l + pnl_s
-            trade.net_pnl = (net_yield * trade.amount) + trade.pnl_realized - trade.exit_fees - trade.entry_fees
+            trade.net_pnl = (net_yield * trade.size_amount) + trade.pnl_realized - trade.exit_fees - trade.entry_fees
             trade.status = "CLOSED"
             
             del self.active_trades[trade.trade_id]
