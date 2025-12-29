@@ -184,7 +184,7 @@ class TradeManager:
         if not long_client or not short_client:
             return
         tm_min = time.localtime().tm_min
-        if tm_min <= 50 or tm_min >= 58:
+        if tm_min < 50 or tm_min >= 58:
             self.logger.info(f"[{trade_id}] SKIPPING ENTRY: {signal.symbol} EXCEED TIME WINDOW TM_MIN: {tm_min}")
             return
 
