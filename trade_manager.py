@@ -378,7 +378,7 @@ class TradeManager:
             exec_entry_short=entry_s,
             size_amount=size,
             entry_spread=signal.target_spread,
-            fees_paid_usdt=entry_fees_paid,
+            entry_fees=entry_fees_paid,
             expected_yield=signal.funding_yield_bps,
             status=status,
             entry_time=time.time()
