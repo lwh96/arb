@@ -408,7 +408,7 @@ class TradeManager:
         for t_id, trade in list(self.active_trades.items()):
             if not trade.status.startswith("OPEN"): continue
             tm_min = time.localtime().tm_min
-            if  tm_min < 5:
+            if  5 <= tm_min < 50 :
                 return
             try:
                 long_client = self.clients[trade.long_exchange]
