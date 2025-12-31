@@ -47,7 +47,7 @@ async def main():
             # bitget_exc.start(data_queue),
             engine.process_data(data_queue),
             engine.dashboard_loop(),  
-            trader.run(exec_queue, data_queue) # <--- DISABLED
+            trader.run(exec_queue, data_queue, engine) # <--- DISABLED
         )
     except Exception as e:
         logger.critical("Fatal Crash in Main Loop!", exc_info=True)

@@ -8,6 +8,7 @@ import logging
 from typing import Dict, Optional, Tuple
 from trade_models import TradeSignal, ActiveTrade
 from opportunity import Opportunity
+from arbitrage_engine import ArbitrageEngine
 import uuid
 from dotenv import load_dotenv
 from logger_config import setup_logger
@@ -16,10 +17,11 @@ load_dotenv()
 
 TRADES_FILE = "active_trades.json"
 HISTORY_FILE = "trade_history.csv"
-LEVERAGE = 15
-PCT_EQUITY_PER_TRADE = 0.10  
+LEVERAGE = 5
+PCT_EQUITY_PER_TRADE = 0.15
 EXIT_NET_PROFIT_TARGET_BPS = 3.0 
 ORDER_TIMEOUT_SEC = 20 
+MIN_DEPLOYABLE = 20 
 EXCHANGE_TAKER_FEES = {
     "binanceusdm": 0.00046,
     "bybit": 0.00055,
@@ -39,6 +41,7 @@ class TradeManager:
         self.active_trades: Dict[str, ActiveTrade] = {}
         self.clients: Dict[str, ccxt.Exchange] = {}
         self.logger = setup_logger("TradeManager")
+        self.engine: ArbitrageEngine = None
         
         self.api_config = {
             "binanceusdm": {
@@ -74,8 +77,9 @@ class TradeManager:
             except Exception as e:
                 self.logger.error(f"Failed to init {exchange_id}: {e}")
 
-    async def run(self, signal_queue: asyncio.Queue, market_data_queue: asyncio.Queue):
+    async def run(self, signal_queue: asyncio.Queue, market_data_queue: asyncio.Queue, engine: ArbitrageEngine):
         self.logger.info("Trade Manager Started.")
+        self.engine = engine
         while True:
             if not signal_queue.empty():
                 signal: TradeSignal = await signal_queue.get()
@@ -135,9 +139,8 @@ class TradeManager:
                         
                         # Fetch fresh ticker to get current Best Bid/Ask
                         try:
-                            ticker = (await client.fetch_bids_asks([symbol]))[symbol]
-                            best_bid = ticker['bid']
-                            best_ask = ticker['ask']
+                            bid = self.engine.market_map[symbol][client.id].bid
+                            ask = self.engine.market_map[symbol][client.id].ask
                             
                             # Get tick size for precision
                             market = client.market(symbol)
@@ -151,11 +154,11 @@ class TradeManager:
                                 # Try to match Best Bid (Maker)
                                 # If spread is tight, Best Bid might still cross if market moved down
                                 # Safer: Best Bid - 1 tick
-                                target = best_bid - (tick_size * (attempt+ 1))
+                                target = bid - (tick_size * (attempt+ 1))
                                 current_price = target
                             else:
                                 # Sell at Best Ask
-                                target = best_ask + (tick_size * (attempt+ 1))
+                                target = ask + (tick_size * (attempt+ 1))
                                 current_price = target
                                 
                             # Ensure formatted string for API
@@ -180,23 +183,58 @@ class TradeManager:
 
         long_client = self.clients.get(signal.long_exchange)
         short_client = self.clients.get(signal.short_exchange)
+        if not long_client.markets:
+            await long_client.load_markets()
+            
+        if not short_client.markets:
+            await short_client.load_markets()
 
         if not long_client or not short_client:
             return
         tm_min = time.localtime().tm_min
-        if tm_min < 50 or tm_min >= 58:
+        if tm_min < 50 or tm_min > 58:
             self.logger.info(f"[{trade_id}] SKIPPING ENTRY: {signal.symbol} EXCEED TIME WINDOW TM_MIN: {tm_min}")
             return
 
         size_amount = 0.0
         try:
-            bal_long = await long_client.fetch_balance()
-            bal_short = await short_client.fetch_balance()
+            bal_long, bal_short = await asyncio.gather(long_client.fetch_balance(), 
+                                                 short_client.fetch_balance())
+            market_long = long_client.market(signal.symbol)
+            market_short = short_client.market(signal.symbol)
+
             free_long = float(bal_long['USDT']['free'])
             free_short = float(bal_short['USDT']['free'])
             max_deployable = min(free_long, free_short) * PCT_EQUITY_PER_TRADE * LEVERAGE
+
+            l_cost_min = market_long['limits']['cost']['min']
+            l_cost_max = market_long['limits']['cost']['max']
+            s_cost_min = market_short['limits']['cost']['min']
+            s_cost_max = market_short['limits']['cost']['max']
+
+            if max_deployable < MIN_DEPLOYABLE:
+                self.logger.info(f"[{trade_id}] SKIPPING ENTRY: {signal.symbol} MAX DEPLOYABLE {max_deployable} < THRESHOLD: {MIN_DEPLOYABLE}")
+                return
+            if (l_cost_min and max_deployable < l_cost_min) or (s_cost_min and max_deployable < s_cost_min):
+                self.logger.info(f"[{trade_id}] SKIPPING ENTRY: {signal.symbol} MAX DEPLOYABLE {max_deployable} < min cost")
+                return
+            if (l_cost_max and max_deployable > l_cost_max) or (s_cost_max and max_deployable > s_cost_max):
+                self.logger.info(f"[{trade_id}] SKIPPING ENTRY: {signal.symbol} MAX DEPLOYABLE {max_deployable} > max cost")
+                return            
+            
             raw_size = max_deployable / signal.entry_price_long
             size_amount = float(long_client.amount_to_precision(signal.symbol, raw_size))
+            l_amount_min = market_long['limits']['amount']['min']
+            l_amount_max = market_long['limits']['amount']['max']
+            s_amount_min = market_short['limits']['amount']['min']
+            s_amount_max = market_short['limits']['amount']['max']
+
+            if (l_amount_min and size_amount < l_amount_min)  or (s_amount_min and size_amount < s_amount_min):
+                self.logger.info(f"[{trade_id}] SKIPPING ENTRY: {signal.symbol} SIZE {size_amount} < MIN amount")
+                return
+            if (l_amount_max and size_amount > l_amount_max) or (s_amount_max and size_amount > s_amount_max):
+                self.logger.info(f"[{trade_id}] SKIPPING ENTRY: {signal.symbol} SIZE {size_amount} > MAX amount")
+                return            
         except Exception as e:
             self.logger.error(f"[{trade_id}] Sizing Error: {e}")
             return
@@ -414,11 +452,9 @@ class TradeManager:
                 long_client = self.clients[trade.long_exchange]
                 short_client = self.clients[trade.short_exchange]
                 
-                tick_long = (await long_client.fetch_bids_asks([trade.symbol]))[trade.symbol]
-                tick_short = (await short_client.fetch_bids_asks([trade.symbol]))[trade.symbol]
                 
-                exit_bid_long = tick_long['bid']
-                exit_ask_short = tick_short['ask']
+                exit_bid_long = self.engine.market_map[trade.symbol][long_client.id].bid
+                exit_ask_short = self.engine.market_map[trade.symbol][short_client.id].ask
                 
                 pnl_long_pct = (exit_bid_long - trade.exec_entry_long) / trade.exec_entry_long
                 pnl_short_pct = (trade.exec_entry_short - exit_ask_short) / trade.exec_entry_short
@@ -504,6 +540,7 @@ class TradeManager:
 async def test():
     data_queue = asyncio.Queue()
     exec_queue = asyncio.Queue()
+    engine = ArbitrageEngine(execution_queue=exec_queue) 
     trader = TradeManager()  
     opp = Opportunity(
         symbol='ANIME/USDT:USDT',
@@ -529,7 +566,7 @@ async def test():
         score=opp.final_score
     )
     await exec_queue.put(signal)
-    await trader.run(exec_queue, data_queue)
+    await trader.run(exec_queue, data_queue, engine)
 
 if __name__ == '__main__':
         asyncio.run(test())
